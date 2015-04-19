@@ -547,6 +547,24 @@ class TestController(unittest.TestCase):
 
         controller.remove_hidden_service(hs_path, 8989)
         self.assertEqual(3, len(controller.get_hidden_service_conf()))
+
+        # add a new service, this time with client authentication
+
+        hs_path = os.path.join(os.getcwd(), service3_path)
+        hs_address1 = controller.create_hidden_service(hs_path, 8888,
+            auth_type='basic', client_names=['c1', 'c2']).hostname
+
+        self.assertTrue(hs_address1.endswith('.onion'))
+
+        conf = controller.get_hidden_service_conf()
+        self.assertEqual(4, len(conf))
+        self.assertEqual(2, len(conf[hs_path]['HiddenServicePort']))
+
+        # remove a hidden service
+
+        controller.remove_hidden_service(hs_path, 8888)
+        self.assertEqual(4, len(controller.get_hidden_service_conf()))
+
       finally:
         controller.set_hidden_service_conf({})  # drop hidden services created during the test
 

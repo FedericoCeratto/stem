@@ -2279,7 +2279,8 @@ class Controller(BaseController):
 
     self.set_options(hidden_service_options)
 
-  def create_hidden_service(self, path, port, target_address = None, target_port = None):
+  def create_hidden_service(self, path, port, target_address=None,
+                            target_port=None, auth_type=None, client_names=None):
     """
     Create a new hidden service. If the directory is already present, a
     new port is added. This provides a **namedtuple** of the following...
@@ -2302,6 +2303,8 @@ class Controller(BaseController):
     :param str target_address: address of the service, by default 127.0.0.1
     :param int target_port: port of the service, by default this is the same as
       **port**
+    :param str auth_type: authentication type: basic, stealth or None to disable auth
+    :param list client_names: client names (1-16 characters "A-Za-z0-9+-_")
 
     :returns: **CreateHiddenServiceOutput** if we create or update a hidden service, **None** otherwise
 
@@ -2315,9 +2318,11 @@ class Controller(BaseController):
     elif target_port is not None and not stem.util.connection.is_valid_port(target_port):
       raise ValueError("%s isn't a valid port number" % target_port)
 
-    port = int(port)
-    target_address = target_address if target_address else '127.0.0.1'
-    target_port = port if target_port is None else int(target_port)
+    if auth_type not in (None, 'basic', 'stealth'):
+      raise ValueError("%r is not a valid auth_type" % auth_type)
+
+    target_address = target_address or '127.0.0.1'
+    target_port = int(target_port or port)  # target_port is never 0 here
 
     conf = self.get_hidden_service_conf()
 
@@ -2325,6 +2330,10 @@ class Controller(BaseController):
       return None
 
     conf.setdefault(path, OrderedDict()).setdefault('HiddenServicePort', []).append((port, target_address, target_port))
+    if auth_type:
+        hsac = "%s %s" % (auth_type, ','.join(client_names))
+        conf[path]['HiddenServiceAuthorizeClient'] = hsac
+
     self.set_hidden_service_conf(conf)
 
     hostname = None
@@ -2349,12 +2358,11 @@ class Controller(BaseController):
           else:
             time.sleep(0.05)
 
-        if os.path.exists(hostname_path):
-          try:
-            with open(hostname_path) as hostname_file:
-              hostname = hostname_file.read().strip()
-          except:
-            pass
+        try:
+          with open(hostname_path) as hostname_file:
+            hostname = hostname_file.read().strip()
+        except:
+          pass
 
     return CreateHiddenServiceOutput(
       path = path,
@@ -2402,6 +2410,36 @@ class Controller(BaseController):
 
     self.set_hidden_service_conf(conf)
     return True
+
+  def get_hidden_service_auth_cookies(self, path):
+      """
+      Get client auth cookies for a hidden service.
+
+        * path (str) - hidden service directory
+
+      :returns: list of (client name, auth cookie)
+      :raises: **ValueError** if the hidden service does not exist or does not
+      require authentication
+      """
+      if not os.path.exists(path):
+        raise ValueError("Hidden service directory not found")
+
+      client_keys_fn = os.path.join(path, 'client_keys')
+      if not os.path.exists(client_keys_fn):
+        raise ValueError("Client auth not enabled")
+
+      out = {}
+      name = None
+      with open(client_keys_fn) as f:
+        for l in f.readlines():
+          l = l.strip()
+          if l.startswith('client-name '):
+            name = l[12:]
+          elif l.startswith('descriptor-cookie '):
+            out[name] = l[18:]
+
+      return out
+
 
   def add_event_listener(self, listener, *events):
     """
